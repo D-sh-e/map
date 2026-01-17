@@ -23,9 +23,6 @@ COPY . .
 
 
 
-# Сборка статических файлов
-RUN python manage.py collectstatic --noinput
-
 # Добавить данные в БД
 RUN python manage.py migrate
 RUN python manage.py loaddata --exclude=contenttypes data.json
