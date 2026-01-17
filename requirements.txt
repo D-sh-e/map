@@ -1,5 +1,5 @@
-Django
+Django>=3.2
 djangorestframework
 djangorestframework-simplejwt
-
+gunicorn
 
