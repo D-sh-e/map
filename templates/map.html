@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Карта точек</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin=""/>
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #map {
+            flex: 1;
+            width: 100%;
+        }
+        
+        #messagesPanel {
+            width: 300px;
+            height: 100%;
+            position: fixed;
+            right: -300px;
+            top: 0;
+            background: white;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+            transition: right 0.3s;
+            z-index: 1000;
+            padding: 15px;
+            overflow-y: auto;
+        }
+        
+        #messagesPanel.open {
+            right: 0;
+        }
+        
+        #closePanel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+        }
+        
+        .message {
+            border-bottom: 1px solid #eee;
+            padding: 10px 0;
+            margin-bottom: 10px;
+        }
+        
+        .message:last-child {
+            border-bottom: none;
+        }
+        
+        .message-user {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .message-text {
+            margin-top: 5px;
+            color: #34495e;
+        }
+        
+        .message-time {
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-top: 5px;
+        }
+        
+        .no-messages {
+            color: #95a5a6;
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Карта -->
+    <div id="map"></div>
+    
+    <!-- Панель сообщений (скрыта по умолчанию) -->
+    <div id="messagesPanel">
+        <button id="closePanel">&times;</button>
+        <h3 id="pointName"></h3>
+        <div id="messagesList"></div>
+    </div>
+
+    <script>
+        let map;
+        let markers = [];
+        let currentPointId = null;
+        
+        let token = localStorage.getItem('token');
+        
+        // Инициализация карты
+        function initMap() {
+            // Центр карты по умолчанию (Москва)
+            map = L.map('map').setView([55.7558, 37.6173], 10);
+            
+            // Слой карты (OpenStreetMap)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+            
+            // Загружаем точки
+            loadPoints();
+        }
+        
+        // Загрузка точек с API
+        async function loadPoints() {
+            try {
+                const response = await fetch('/api/points/', {
+                    headers: {
+                        'Authorization': token ? `Bearer ${token}` : '',
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    let points = [];
+                    points = data.results;
+                    displayPoints(points);
+
+                } else if (response.status === 401) {
+                    
+                    alert('Для просмотра точек необходимо войти в систему');
+                    
+                    // Запрашиваем новый токен
+                    const userToken = prompt('Введите ваш JWT токен (получите через API /api/token/):');
+                    if (userToken) {
+                        localStorage.setItem('token', userToken);
+                        token = userToken;
+                        // Перезагружаем страницу
+                        location.reload();
+                    } else {
+                        // Если пользователь отменил ввод, оставляем карту пустой
+                        displayPoints([]);
+                    }
+                } else {
+                    const errorData = await response.json();
+                    console.error('Ошибка сервера:', errorData);
+                    alert('Ошибка загрузки точек: ' + (errorData.detail || response.statusText));
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки точек:', error);
+                alert('Ошибка соединения с сервером');
+            }
+        }
+        
+        // Отображение точек на карте
+        function displayPoints(points) {
+            // Очищаем старые маркеры
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+            
+            points.forEach(point => {
+                // Создаем маркер
+                const marker = L.marker([point.latitude, point.longitude])
+                    .addTo(map)
+                    .bindPopup(`<b>${point.name}</b><br>Создатель: ${point.user.username}`);
+                
+                // Добавляем обработчик клика
+                marker.on('click', () => {
+                    showMessagesForPoint(point.id, point.name);
+                });
+                
+                markers.push(marker);
+            });
+            
+
+            if (points.length > 0) {
+                const bounds = L.latLngBounds(points.map(p => [p.latitude, p.longitude]));
+                map.fitBounds(bounds);
+            }
+        }
+        
+        // Показать сообщения для точки
+        async function showMessagesForPoint(pointId, pointName) {
+            currentPointId = pointId;
+            
+            // Обновляем заголовок панели
+            document.getElementById('pointName').textContent = pointName;
+            
+            // Показываем панель
+            document.getElementById('messagesPanel').classList.add('open');
+            
+            // Загружаем сообщения
+            try {
+                const response = await fetch(`/api/points/messages/?point_id=${pointId}`, {
+                    headers: {
+                        'Authorization': token ? `Bearer ${token}` : ''
+                    }
+                });
+                
+                if (response.ok) {
+                    const messages = await response.json();
+                    displayMessages(messages);
+                } else {
+                    document.getElementById('messagesList').innerHTML = 
+                        '<div class="no-messages">Ошибка загрузки сообщений</div>';
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки сообщений:', error);
+                document.getElementById('messagesList').innerHTML = 
+                    '<div class="no-messages">Ошибка загрузки сообщений</div>';
+            }
+        }
+        
+        // Отображение сообщений
+        function displayMessages(messages) {
+            const messagesList = document.getElementById('messagesList');
+            
+            if (messages.length === 0) {
+                messagesList.innerHTML = '<div class="no-messages">Нет сообщений для этой точки</div>';
+                return;
+            }
+            
+            let html = '';
+            messages.forEach(message => {
+                const date = new Date(message.created_at);
+                const formattedDate = date.toLocaleString();
+                
+                html += `
+                    <div class="message">
+                        <div class="message-user">${message.user.username}</div>
+                        <div class="message-text">${message.text}</div>
+                        <div class="message-time">${formattedDate}</div>
+                    </div>
+                `;
+            });
+            
+            messagesList.innerHTML = html;
+        }
+        
+        // Закрыть панель сообщений
+        document.getElementById('closePanel').addEventListener('click', () => {
+            document.getElementById('messagesPanel').classList.remove('open');
+        });
+        
+        // Проверка авторизации при загрузке
+        function checkAuth() {
+            token = localStorage.getItem('token');
+            
+            if (!token) {
+                // Запрашиваем токен
+                const userToken = prompt('Введите ваш JWT токен (получите через API /api/token/):');
+                if (userToken) {
+                    localStorage.setItem('token', userToken);
+                    token = userToken;
+                    location.reload();
+                }
+            }
+        }
+        
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuth();
+            initMap();
+        });
+    </script>
+</body>
+</html>

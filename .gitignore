@@ -1,0 +1,27 @@
+# .gitignore
+# Django
+*.pyc
+__pycache__/
+db.sqlite3
+
+
+# Environment
+.env
+.venv
+venv/
+
+# IDE
+.vscode/
+*.swp
+*.swo
+
+# Static files
+staticfiles/
+media/
+
+# Docker
+Dockerfile.prod
+.dockerignore
+
+# Logs
+*.log
